@@ -20,13 +20,14 @@ package clickhouse_api
 import (
 	"context"
 	"fmt"
-	clickhouse_tests "github.com/ClickHouse/clickhouse-go/v2/tests"
-	"github.com/stretchr/testify/require"
 	"math/rand"
 	"os"
 	"strconv"
 	"testing"
 	"time"
+
+	clickhouse_tests "github.com/ClickHouse/clickhouse-go/v2/tests"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMain(m *testing.M) {
@@ -57,11 +58,6 @@ func TestMain(m *testing.M) {
 }
 
 // ClickHouse API tests
-
-func TestJSON(t *testing.T) {
-	require.NoError(t, InsertReadJSON())
-	require.NoError(t, ReadComplexJSON())
-}
 
 func TestOpenTelemetry(t *testing.T) {
 	require.NoError(t, OpenTelemetry())
@@ -155,9 +151,14 @@ func TestMapInsertRead(t *testing.T) {
 	require.NoError(t, MapInsertRead())
 }
 
+func TestIterableOrderedMapInsertRead(t *testing.T) {
+	require.NoError(t, IterableOrderedMapInsertRead())
+}
+
 func TestMultiHostConnect(t *testing.T) {
 	require.NoError(t, MultiHostVersion())
 	require.NoError(t, MultiHostRoundRobinVersion())
+	require.NoError(t, MultiHostRandomVersion())
 }
 
 func TestNested(t *testing.T) {
@@ -207,4 +208,12 @@ func TestSSL(t *testing.T) {
 
 func TestSSLNoVerify(t *testing.T) {
 	require.NoError(t, SSLNoVerifyVersion())
+}
+
+func TestVariantExample(t *testing.T) {
+	require.NoError(t, VariantExample())
+}
+
+func TestDynamicExample(t *testing.T) {
+	require.NoError(t, DynamicExample())
 }
