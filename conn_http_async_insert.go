@@ -20,7 +20,6 @@ package clickhouse
 import (
 	"context"
 	"io"
-	"io/ioutil"
 )
 
 func (h *httpConnect) asyncInsert(ctx context.Context, query string, wait bool, args ...any) error {
@@ -39,11 +38,11 @@ func (h *httpConnect) asyncInsert(ctx context.Context, query string, wait bool, 
 		}
 	}
 
-	res, err := h.sendQuery(ctx, query, &options, h.headers)
+	res, err := h.sendQuery(ctx, query, &options, nil)
 	if res != nil {
 		defer res.Body.Close()
 		// we don't care about result, so just discard it to reuse connection
-		_, _ = io.Copy(ioutil.Discard, res.Body)
+		_, _ = io.Copy(io.Discard, res.Body)
 	}
 
 	return err

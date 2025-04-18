@@ -21,9 +21,11 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"math/rand"
 	"os"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -66,6 +68,20 @@ func TestBadConn(t *testing.T) {
 }
 
 func TestConnFailover(t *testing.T) {
+	testConnFailover(t, clickhouse.ConnOpenInOrder)
+}
+
+func TestConnFailoverRoundRobin(t *testing.T) {
+	testConnFailover(t, clickhouse.ConnOpenRoundRobin)
+}
+
+func TestConnFailoverRandom(t *testing.T) {
+	rand.Seed(85206178671753423)
+	defer ResetRandSeed()
+	testConnFailover(t, clickhouse.ConnOpenRandom)
+}
+
+func testConnFailover(t *testing.T, connOpenStrategy clickhouse.ConnOpenStrategy) {
 	env, err := GetNativeTestEnvironment()
 	require.NoError(t, err)
 	useSSL, err := strconv.ParseBool(GetEnv("CLICKHOUSE_USE_SSL", "false"))
@@ -76,7 +92,8 @@ func TestConnFailover(t *testing.T) {
 		port = env.SslPort
 		tlsConfig = &tls.Config{}
 	}
-	conn, err := GetConnectionWithOptions(&clickhouse.Options{
+	options := clickhouse.Options{
+		ConnOpenStrategy: connOpenStrategy,
 		Addr: []string{
 			"127.0.0.1:9001",
 			"127.0.0.1:9002",
@@ -91,41 +108,9 @@ func TestConnFailover(t *testing.T) {
 			Method: clickhouse.CompressionLZ4,
 		},
 		TLS: tlsConfig,
-	})
-	require.NoError(t, err)
-	require.NoError(t, conn.Ping(context.Background()))
-	t.Log(conn.ServerVersion())
-	t.Log(conn.Ping(context.Background()))
-}
-
-func TestConnFailoverConnOpenRoundRobin(t *testing.T) {
-	env, err := GetNativeTestEnvironment()
-	require.NoError(t, err)
-	useSSL, err := strconv.ParseBool(GetEnv("CLICKHOUSE_USE_SSL", "false"))
-	require.NoError(t, err)
-	port := env.Port
-	var tlsConfig *tls.Config
-	if useSSL {
-		port = env.SslPort
-		tlsConfig = &tls.Config{}
 	}
-	conn, err := GetConnectionWithOptions(&clickhouse.Options{
-		Addr: []string{
-			"127.0.0.1:9001",
-			"127.0.0.1:9002",
-			fmt.Sprintf("%s:%d", env.Host, port),
-		},
-		Auth: clickhouse.Auth{
-			Database: "default",
-			Username: env.Username,
-			Password: env.Password,
-		},
-		Compression: &clickhouse.Compression{
-			Method: clickhouse.CompressionLZ4,
-		},
-		ConnOpenStrategy: clickhouse.ConnOpenRoundRobin,
-		TLS:              tlsConfig,
-	})
+
+	conn, err := GetConnectionWithOptions(&options)
 	require.NoError(t, err)
 	require.NoError(t, conn.Ping(context.Background()))
 	t.Log(conn.ServerVersion())
@@ -249,7 +234,7 @@ func TestConnCustomDialStrategy(t *testing.T) {
 	env, err := GetTestEnvironment(testSet)
 	require.NoError(t, err)
 
-	opts := ClientOptionsFromEnv(env, clickhouse.Settings{})
+	opts := ClientOptionsFromEnv(env, clickhouse.Settings{}, false)
 	validAddr := opts.Addr[0]
 	opts.Addr = []string{"invalid.host:9001"}
 
@@ -266,10 +251,7 @@ func TestConnCustomDialStrategy(t *testing.T) {
 }
 
 func TestEmptyDatabaseConfig(t *testing.T) {
-	runInDocker, _ := strconv.ParseBool(GetEnv("CLICKHOUSE_USE_DOCKER", "true"))
-	if !runInDocker {
-		t.Skip("Skip test in cloud environment.")
-	}
+	SkipOnCloud(t)
 
 	env, err := GetNativeTestEnvironment()
 	require.NoError(t, err)
@@ -309,10 +291,7 @@ func TestEmptyDatabaseConfig(t *testing.T) {
 }
 
 func TestCustomSettings(t *testing.T) {
-	runInDocker, _ := strconv.ParseBool(GetEnv("CLICKHOUSE_USE_DOCKER", "true"))
-	if !runInDocker {
-		t.Skip("Skip test in cloud environment.") // todo configure cloud instance with custom settings
-	}
+	SkipOnCloud(t, "Custom settings are not supported on ClickHouse Cloud")
 
 	conn, err := GetNativeConnection(clickhouse.Settings{
 		"custom_setting": clickhouse.CustomSetting{"custom_value"},
@@ -326,13 +305,13 @@ func TestCustomSettings(t *testing.T) {
 		require.NoError(t, row.Err())
 
 		var setting string
-		require.NoError(t, row.Scan(&setting))
-		require.Equal(t, "custom_value", setting)
+		assert.NoError(t, row.Scan(&setting))
+		assert.Equal(t, "custom_value", setting)
 	})
 
 	t.Run("get non-existing custom setting value", func(t *testing.T) {
 		row := conn.QueryRow(context.Background(), "SELECT getSetting('custom_non_existing_setting')")
-		require.ErrorContains(t, row.Err(), "Unknown setting custom_non_existing_setting")
+		assert.Contains(t, strings.ReplaceAll(row.Err().Error(), "'", ""), "Unknown setting custom_non_existing_setting")
 	})
 
 	t.Run("get custom setting value from query context", func(t *testing.T) {
@@ -341,19 +320,16 @@ func TestCustomSettings(t *testing.T) {
 		}))
 
 		row := conn.QueryRow(ctx, "SELECT getSetting('custom_query_setting')")
-		require.NoError(t, row.Err())
+		assert.NoError(t, row.Err())
 
 		var setting string
-		require.NoError(t, row.Scan(&setting))
-		require.Equal(t, "custom_query_value", setting)
+		assert.NoError(t, row.Scan(&setting))
+		assert.Equal(t, "custom_query_value", setting)
 	})
 }
 
 func TestConnectionExpiresIdleConnection(t *testing.T) {
-	runInDocker, _ := strconv.ParseBool(GetEnv("CLICKHOUSE_USE_DOCKER", "true"))
-	if !runInDocker {
-		t.Skip("Skip test in cloud environment. This test is not stable in cloud environment, due to race conditions.")
-	}
+	SkipOnCloud(t)
 
 	// given
 	ctx := context.Background()
@@ -366,7 +342,7 @@ func TestConnectionExpiresIdleConnection(t *testing.T) {
 	expectedConnections := getActiveConnections(t, baseConn)
 
 	// when the client is configured to expire idle connections after 1/10 of a second
-	opts := ClientOptionsFromEnv(testEnv, clickhouse.Settings{})
+	opts := ClientOptionsFromEnv(testEnv, clickhouse.Settings{}, false)
 	opts.MaxIdleConns = 20
 	opts.MaxOpenConns = 20
 	opts.ConnMaxLifetime = time.Second / 10
@@ -382,8 +358,7 @@ func TestConnectionExpiresIdleConnection(t *testing.T) {
 			defer wg.Done()
 			r, err := conn.Query(ctx, "SELECT 1")
 			require.NoError(t, err)
-
-			r.Close()
+			require.NoError(t, r.Close())
 		}()
 	}
 	wg.Wait()
@@ -404,10 +379,8 @@ func getActiveConnections(t *testing.T, client clickhouse.Conn) (conns int64) {
 }
 
 func TestConnectionCloseIdle(t *testing.T) {
-	runInDocker, _ := strconv.ParseBool(GetEnv("CLICKHOUSE_USE_DOCKER", "true"))
-	if !runInDocker {
-		t.Skip("Skip test in cloud environment. This test is not stable in cloud environment, due to race conditions.")
-	}
+	SkipOnCloud(t)
+
 	testEnv, err := GetTestEnvironment(testSet)
 	require.NoError(t, err)
 	baseGoroutine := runtime.NumGoroutine()
@@ -416,8 +389,8 @@ func TestConnectionCloseIdle(t *testing.T) {
 		conn, err := TestClientWithDefaultSettings(testEnv)
 		require.NoError(t, err)
 		err = conn.Ping(ctx)
-		conn.Close()
 		require.NoError(t, err)
+		require.NoError(t, conn.Close())
 	}
 	time.Sleep(100 * time.Millisecond) // wait for all connections closed
 	finalGoroutine := runtime.NumGoroutine()
@@ -481,4 +454,40 @@ func TestFreeBufOnConnRelease(t *testing.T) {
 
 	err = conn.Exec(context.Background(), "DROP TABLE TestFreeBufOnConnRelease")
 	require.NoError(t, err)
+}
+
+func TestJWTError(t *testing.T) {
+	getJWT := func(ctx context.Context) (string, error) {
+		return "", fmt.Errorf("test error")
+	}
+
+	conn, err := GetJWTConnection(testSet, nil, nil, 1000*time.Millisecond, getJWT)
+	require.NoError(t, err)
+	require.ErrorContains(t, conn.Ping(context.Background()), "test error")
+}
+
+func TestNativeJWTAuth(t *testing.T) {
+	SkipNotCloud(t)
+
+	jwt := GetEnv("CLICKHOUSE_JWT", "")
+	getJWT := func(ctx context.Context) (string, error) {
+		return jwt, nil
+	}
+
+	conn, err := GetJWTConnection(testSet, nil, nil, 1000*time.Millisecond, getJWT)
+	require.NoError(t, err)
+
+	// Token works
+	require.NoError(t, conn.Ping(context.Background()))
+
+	// Wait for connection to timeout
+	time.Sleep(1500 * time.Millisecond)
+
+	// Break the token
+	jwt = "broken_jwt"
+
+	// Next ping should fail
+	require.Error(t, conn.Ping(context.Background()))
+
+	require.NoError(t, conn.Close())
 }

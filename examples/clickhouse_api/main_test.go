@@ -22,17 +22,15 @@ import (
 	"fmt"
 	clickhouse_tests "github.com/ClickHouse/clickhouse-go/v2/tests"
 	"github.com/stretchr/testify/require"
-	"math/rand"
 	"os"
 	"strconv"
 	"testing"
-	"time"
 )
 
 func TestMain(m *testing.M) {
-	seed := time.Now().UnixNano()
-	fmt.Printf("using random seed %d for %s tests\n", seed, TestSet)
-	rand.Seed(seed)
+	ResetRandSeed()
+	fmt.Printf("using random seed %d for %s tests\n", randSeed, TestSet)
+
 	useDocker, err := strconv.ParseBool(clickhouse_tests.GetEnv("CLICKHOUSE_USE_DOCKER", "true"))
 	if err != nil {
 		panic(err)
@@ -57,11 +55,6 @@ func TestMain(m *testing.M) {
 }
 
 // ClickHouse API tests
-
-func TestJSON(t *testing.T) {
-	require.NoError(t, InsertReadJSON())
-	require.NoError(t, ReadComplexJSON())
-}
 
 func TestOpenTelemetry(t *testing.T) {
 	require.NoError(t, OpenTelemetry())
@@ -155,9 +148,14 @@ func TestMapInsertRead(t *testing.T) {
 	require.NoError(t, MapInsertRead())
 }
 
+func TestIterableOrderedMapInsertRead(t *testing.T) {
+	require.NoError(t, IterableOrderedMapInsertRead())
+}
+
 func TestMultiHostConnect(t *testing.T) {
 	require.NoError(t, MultiHostVersion())
 	require.NoError(t, MultiHostRoundRobinVersion())
+	require.NoError(t, MultiHostRandomVersion())
 }
 
 func TestNested(t *testing.T) {
@@ -207,4 +205,35 @@ func TestSSL(t *testing.T) {
 
 func TestSSLNoVerify(t *testing.T) {
 	require.NoError(t, SSLNoVerifyVersion())
+}
+
+func TestVariantExample(t *testing.T) {
+	clickhouse_tests.SkipOnCloud(t, "cannot modify Variant settings on cloud")
+	require.NoError(t, VariantExample())
+}
+
+func TestDynamicExample(t *testing.T) {
+	clickhouse_tests.SkipOnCloud(t, "cannot modify Dynamic settings on cloud")
+	require.NoError(t, DynamicExample())
+}
+
+func TestJSONPathsExample(t *testing.T) {
+	clickhouse_tests.SkipOnCloud(t, "cannot modify JSON settings on cloud")
+	require.NoError(t, JSONPathsExample())
+}
+
+func TestJSONStructExample(t *testing.T) {
+	clickhouse_tests.SkipOnCloud(t, "cannot modify JSON settings on cloud")
+	require.NoError(t, JSONStructExample())
+}
+
+func TestJSONFastStructExample(t *testing.T) {
+	clickhouse_tests.SkipOnCloud(t, "cannot modify JSON settings on cloud")
+	require.NoError(t, JSONFastStructExample())
+}
+
+func TestJSONStringExample(t *testing.T) {
+	clickhouse_tests.SkipOnCloud(t, "cannot modify JSON settings on cloud")
+	t.Skip("client cannot receive JSON strings")
+	require.NoError(t, JSONStringExample())
 }

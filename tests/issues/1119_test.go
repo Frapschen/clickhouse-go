@@ -10,6 +10,8 @@ import (
 )
 
 func Test1119(t *testing.T) {
+	t.Skip("Object JSON type is deprecated. Test is kept for a historical reference.")
+
 	var (
 		conn, err = clickhouse_tests.GetConnection("issues", clickhouse.Settings{
 			"max_execution_time":             60,
